@@ -1,0 +1,13 @@
+langchain
+langchain_community
+langchain-ollama
+tiktoken
+langchain-nomic
+scikit-learn
+streamlit
+bs4
+tavily-python
+nomic[local]
+gpt4all
+watchdog
+faiss-cpu
