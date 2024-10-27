@@ -12,19 +12,14 @@ import json
 # Функция для логирования
 log_messages = []
 
-
 def log(message):
     log_messages.append(message)
-    if len(log_messages) > 50:  # Ограничение для предотвращения слишком большого объема данных
-        log_messages.pop(0)
     st.session_state.logs = "\n".join(log_messages)
-
 
 # Установка переменной окружения USER_AGENT
 if not os.getenv("USER_AGENT"):
     os.environ["USER_AGENT"] = "MyStreamlitApp/1.0"
     print("USER_AGENT environment variable set to: MyStreamlitApp/1.0")
-
 
 # Функции для работы с векторной базой данных
 def create_vector_db(documents):
@@ -48,7 +43,6 @@ def create_vector_db(documents):
     log("Vector database created successfully.")
     return vectorstore
 
-
 def add_documents_to_db(vectorstore, new_documents):
     """
     Добавление новых документов в существующую векторную базу данных с использованием FAISS.
@@ -64,39 +58,52 @@ def add_documents_to_db(vectorstore, new_documents):
     vectorstore.add_documents(new_doc_splits)
     log(f"Added {len(new_doc_splits)} new document chunks to the vector database.")
 
-
 # Инициализация состояния для хранения векторной базы данных
 if 'vectorstore' not in st.session_state:
     st.session_state.vectorstore = None
     log("Initialized session state for vectorstore as None.")
 
-
 # Функция для общения с моделью
-def chat_with_model(query, output_format="text"):
+def chat_with_model(query, context=None, metadata=None):
     log(f"User query: {query}")
-    """
-    Общение с моделью на основе запроса пользователя.
-
-    :param query: Вопрос пользователя для чат-бота.
-    :param output_format: Формат ответа ("json" или "text").
-    :return: Ответ модели на заданный вопрос.
-    """
     # Проверка доступности модели
     local_llm = "llama3.2:1b-instruct-fp16"
     llm = ChatOllama(model=local_llm, temperature=0)
     log("Initializing connection to the model...")
     try:
-        # Формирование промпта для модели
-        prompt = HumanMessage(content=query)
-        log(f"Prompt being sent to the model: {prompt}")
-        response = llm.invoke([prompt])
+        # Формирование промпта для модели с контекстом
+        system_prompt = "Generate a comprehensive answer based on the provided context. If the context doesn't contain relevant information, say so."
+        content = f"Context: {context}\n\nQuestion: {query}\n\nSources metadata: {metadata}"
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=content)
+        ]
+        log(f"Prompt being sent to the model: {messages}")
+        response = llm.invoke(messages)
         response_text = response.content if hasattr(response, 'content') else str(response)
         log(f"Model response: {response_text}")
+        if metadata:
+            sources_info = "\n\nSources:\n" + "\n".join([f"- {m.get('source', 'Unknown')}" for m in metadata])
+            response_text += sources_info
         return response_text
     except Exception as e:
         log(f"Error invoking the model: {e}")
         return "An error occurred while generating a response. Please try again."
 
+# Функция для поиска ответа в векторной базе данных
+def retrieve_answer_from_vectorstore(query):
+    if st.session_state.vectorstore is not None:
+        log("Searching for answer in vector store...")
+        try:
+            results = st.session_state.vectorstore.similarity_search(query, k=3)
+            if results:
+                log("Relevant documents found in vector store.")
+                return results
+            else:
+                log("No relevant documents found in vector store.")
+        except Exception as e:
+            log(f"Error retrieving from vector store: {e}")
+    return None
 
 # Главная страница Streamlit приложения
 st.title("Chatbot with Vector Store Management")
@@ -139,47 +146,28 @@ if uploaded_file and st.session_state.vectorstore is not None:
         log(f"Failed to add file: {e}")
         st.error(f"Failed to add file: {e}")
 
-# Просмотр содержимого векторной базы данных
-if st.session_state.vectorstore is not None:
-    st.header("Current Vector Store Contents")
-    log("Retrieving documents from vector store...")
-    try:
-        docs = st.session_state.vectorstore.similarity_search('', k=10)
-        if docs:
-            for i, doc in enumerate(docs):
-                st.write(f"Document {i + 1}: {doc.page_content[:200]}...")
-                st.write(f"Metadata: {doc.metadata}")
-                log(f"Document {i + 1}: {doc.page_content[:200]}...")
-                log(f"Metadata: {doc.metadata}")
-        else:
-            st.write("The vector store is currently empty.")
-            log("The vector store is currently empty.")
-    except Exception as e:
-        log(f"Error retrieving documents: {e}")
-        st.write(f"Error retrieving documents: {e}")
-
 # Интерфейс для общения с чат-ботом
 st.header("Chat with the Bot")
 user_query = st.text_input("Ask the chatbot:", key="chat_input")
 
+# Создание фрейма для вывода ответа модели
+response_frame = st.empty()
 
 # Добавлена функция для отправки по нажатию Enter
 def submit_chat():
-    if st.session_state.vectorstore is not None and user_query:
-        try:
-            log("Retriever initialized for chat.")
-            log(f"User query: {user_query}")
-            answer = chat_with_model(user_query)
-            log(f"Chatbot answer: {answer}")
-            st.session_state.chat_output = answer
-        except Exception as e:
-            log(f"Error during chat: {e}")
-            st.session_state.chat_output = f"Error during chat: {e}"
-
-
-if 'chat_output' in st.session_state:
-    st.write(st.session_state.chat_output)
-    log(f"Chat output: {st.session_state.chat_output}")
+    if user_query:
+        # Попытка найти релевантные документы в векторной базе данных
+        relevant_docs = retrieve_answer_from_vectorstore(user_query)
+        if relevant_docs:
+            log("Relevant documents found in vector store.")
+            context = "\n\n".join([doc.page_content for doc in relevant_docs])
+            metadata = [doc.metadata for doc in relevant_docs]
+            # Формирование осмысленного ответа на основе найденного контекста
+            response = chat_with_model(user_query, context, metadata)
+            response_frame.write(response)
+        else:
+            log("No relevant documents found in vector store.")
+            response_frame.write("I couldn't find any relevant information in the knowledge base to answer your question.")
 
 # Добавлена кнопка и функция для обработки нажатия Enter
 if st.button("Chat") or user_query:
@@ -189,5 +177,16 @@ if st.button("Chat") or user_query:
 # Отображение логов в боковой панели
 st.sidebar.header("Logs")
 if 'logs' in st.session_state:
-    st.sidebar.text_area("Logs:", st.session_state.logs,
-                         height=800)  # Увеличен размер высоты панели логов
+    st.sidebar.write(st.session_state.logs)
+
+# Отображение содержимого векторного хранилища в боковой панели
+st.sidebar.header("Current Vector Store Contents")
+if st.session_state.vectorstore is not None:
+    try:
+        docs = st.session_state.vectorstore.similarity_search(query="", k=10)
+        for i, doc in enumerate(docs):
+            st.sidebar.write(f"Document {i + 1}: {doc.page_content}")
+            st.sidebar.write(f"Metadata: {doc.metadata}")
+    except Exception as e:
+        log(f"Error retrieving documents: {e}")
+        st.sidebar.write(f"Error retrieving documents: {e}")
