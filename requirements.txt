@@ -11,3 +11,5 @@ nomic[local]
 gpt4all
 watchdog
 faiss-cpu
+chromadb
+pymupdf

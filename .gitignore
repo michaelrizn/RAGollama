@@ -1,0 +1,20 @@
+# Ignore database files created by Chroma
+chroma_db/
+
+# Python related
+*.pyc
+__pycache__/
+
+# Virtual environments
+.venv/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Streamlit temporary files
+.streamlit/
+
+# Logs and temporary files
+*.log
+*.tmp
