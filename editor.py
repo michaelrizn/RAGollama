@@ -37,12 +37,74 @@ def manage_vector_store_page(vectorstore, add_documents_to_db):
             st.success("Document added to vector store.")
 
         url_input = st.text_input("Enter URL to add document from:", key="url_input")
-        if st.button("Add from URL") or url_input:
-            if url_input:
-                loader = WebBaseLoader([url_input])
-                documents = loader.load()
-                add_documents_to_db(vectorstore, documents)
-                st.success("Document added from URL to vector store.")
+
+        # Initialize button states and visibility flags in session state if not exists
+        if 'show_url_button' not in st.session_state:
+            st.session_state['show_url_button'] = True
+        if 'show_urlslist_button' not in st.session_state:
+            st.session_state['show_urlslist_button'] = True
+
+        if st.session_state['show_url_button']:
+            if st.button("Add from URL"):
+                if url_input:
+                    st.session_state['show_url_button'] = False
+                    try:
+                        loader = WebBaseLoader([url_input])
+                        documents = loader.load()
+                        add_documents_to_db(vectorstore, documents)
+                        st.success("Document added from URL to vector store.")
+                    finally:
+                        st.rerun()
+
+        # Кнопка для добавления URL из файла urlslist.txt
+        if st.session_state['show_urlslist_button']:
+            if st.button("Add URLs from urlslist.txt"):
+                st.session_state['show_urlslist_button'] = False
+                try:
+                    url_list_path = "urlslist.txt"
+                    if os.path.exists(url_list_path):
+                        with open(url_list_path, "r") as f:
+                            url_list = f.read().split(",")
+                        url_list = [url.strip() for url in url_list if url.strip()]
+
+                        added_urls = []
+                        updated_urls = []
+
+                        for url in url_list:
+                            # Проверка, существует ли URL в базе данных
+                            all_docs = vectorstore._collection.get()
+                            matching_ids = []
+
+                            for i, metadata in enumerate(all_docs['metadatas']):
+                                if 'source' in metadata and metadata['source'] == url:
+                                    matching_ids.append(all_docs['ids'][i])
+
+                            if matching_ids:
+                                # Удаление всех существующих записей с таким URL
+                                vectorstore._collection.delete(ids=matching_ids)
+                                updated_urls.append(url)
+                            else:
+                                added_urls.append(url)
+
+                            # Добавление нового документа в базу данных
+                            loader = WebBaseLoader([url])
+                            documents = loader.load()
+                            add_documents_to_db(vectorstore, documents)
+
+                        # Вывод результатов
+                        st.write("URLs processing completed.")
+                        if added_urls:
+                            st.write("New URLs added:")
+                            for added_url in added_urls:
+                                st.write(f"- {added_url}")
+                        if updated_urls:
+                            st.write("Updated URLs (existing documents were deleted and replaced):")
+                            for updated_url in updated_urls:
+                                st.write(f"- {updated_url}")
+                    else:
+                        st.error("The file urlslist.txt does not exist.")
+                finally:
+                    st.rerun()
 
         # Форма для поиска документов в базе данных
         search_query = st.text_input("Search documents in vector store:", key="search_query")
@@ -72,6 +134,13 @@ def manage_vector_store_page(vectorstore, add_documents_to_db):
                             if embedding_id:
                                 vectorstore._collection.delete(ids=[embedding_id])
                                 st.success(f"Document {i} deleted from vector store.")
+                                st.rerun()
+                        if st.button(f"Edit Document {i}", key=f"edit_search_{i}"):
+                            new_content = st.text_area(f"Edit Content for Document {i}", value=result.page_content, key=f"edit_content_{i}")
+                            if st.button(f"Save Changes for Document {i}", key=f"save_edit_{i}"):
+                                # Обновляем содержимое документа
+                                vectorstore._collection.update(ids=[result.metadata.get('id', result.metadata.get('source'))], documents=[new_content])
+                                st.success(f"Document {i} updated successfully.")
                                 st.rerun()
                         st.markdown("---")
 
@@ -140,6 +209,13 @@ def manage_vector_store_page(vectorstore, add_documents_to_db):
                             vectorstore._collection.delete(ids=[doc_id])
                             st.success(f"Document {i} deleted from vector store.")
                             st.rerun()
+                        if st.button(f"Edit Document {i}", key=f"edit_{i}"):
+                            new_content = st.text_area(f"Edit Content for Document {i}", value=doc, key=f"edit_content_{i}")
+                            if st.button(f"Save Changes for Document {i}", key=f"save_edit_{i}"):
+                                # Обновляем содержимое документа
+                                vectorstore._collection.update(ids=[doc_id], documents=[new_content])
+                                st.success(f"Document {i} updated successfully.")
+                                st.rerun()
                         st.markdown("---")  # Добавляем горизонтальный разделитель между записями
 
                     # Нижние кнопки навигации
