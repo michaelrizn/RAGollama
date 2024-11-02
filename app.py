@@ -58,21 +58,6 @@ def create_vector_db(documents):
     log("Vector database created successfully and persisted locally.")
     return vectorstore
 
-def add_documents_to_db(vectorstore, new_documents):
-    """
-    Добавление новых документов в существующую векторную базу данных с использованием Chroma.
-    :param vectorstore: Экземпляр существующей векторной базы данных.
-    :param new_documents: Список новых документов для добавления.
-    """
-    log("Adding new documents to the vector database...")
-    text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
-        chunk_size=1000, chunk_overlap=200
-    )
-    new_doc_splits = text_splitter.split_documents(new_documents)
-    vectorstore.add_documents(new_doc_splits)
-    vectorstore.persist()
-    log(f"Added {len(new_doc_splits)} new document chunks to the vector database and persisted changes.")
-
 # Инициализация состояния для хранения векторной базы данных
 if 'vectorstore' not in st.session_state:
     st.session_state.vectorstore = initialize_vector_db()
@@ -132,15 +117,22 @@ def submit_chat():
         metadata = None
         if relevant_docs:
             context = "\n\n".join([doc.page_content for doc in relevant_docs])
-            metadata = [doc.metadata for doc in relevant_docs]
+            # Создаем множество для хранения уникальных метаданных
+            unique_metadata = set()
+            metadata = []
+            for doc in relevant_docs:
+                meta_tuple = (doc.metadata.get("tag"), doc.metadata.get("source"))
+                if meta_tuple not in unique_metadata:
+                    unique_metadata.add(meta_tuple)
+                    metadata.append({"tag": meta_tuple[0], "source": meta_tuple[1]})
 
         # Получаем ответ от модели
         response = chat_with_model(user_query, context, metadata)
 
         # Отображаем ответ
         if metadata:
-            response_frame.write(response + "\n\nSources used for context:\n" + "\n".join(
-                [str(meta) for meta in metadata]))
+            formatted_metadata = "\n".join([f"tag - {meta['tag']}\nsource - {meta['source']}\n" for meta in metadata if meta])
+            response_frame.write(response + "\n\n" + formatted_metadata)
         else:
             response_frame.write(response)
 
@@ -151,7 +143,7 @@ col1, col2 = st.columns([1, 0.1])
 submit_chat()
 
 # Кнопка для управления содержимым векторной базы данных
-manage_vector_store_page(st.session_state.vectorstore, add_documents_to_db)
+manage_vector_store_page(st.session_state.vectorstore, None)
 
 # Отображение логов в боковой панели
 st.sidebar.header("Logs")

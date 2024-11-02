@@ -1,5 +1,5 @@
-https://habr.com/ru/news/854296/,
-https://habr.com/ru/news/854212/,
-https://habr.com/ru/news/854210/,
-https://habr.com/ru/news/854202/,
-https://habr.com/ru/news/854198/
+https://habr.com/ru/news/854296/;habr;,
+https://habr.com/ru/news/854212/;habr;,
+https://habr.com/ru/news/854210/;habr;,
+https://habr.com/ru/news/854202/;habr;,
+https://habr.com/ru/news/854198/;habr;
