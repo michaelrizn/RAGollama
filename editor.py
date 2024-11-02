@@ -271,6 +271,4 @@ if __name__ == "__main__":
     manage_vector_store_page(st.session_state.vectorstore, None)
 
 # Логи отображаются в боковой панели
-st.sidebar.header("Logs")
-if 'logs' in st.session_state:
-    st.sidebar.write(st.session_state.logs)
+

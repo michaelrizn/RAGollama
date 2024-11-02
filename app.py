@@ -1,5 +1,6 @@
 import os
 import streamlit as st
+import sqlite3
 from langchain_ollama import ChatOllama
 from langchain_community.vectorstores import Chroma
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -8,6 +9,7 @@ from langchain.schema import Document
 from langchain_core.messages import HumanMessage, SystemMessage
 import json
 from editor import manage_vector_store_page
+from scan import scan_vector_store
 
 # Функция для логирования
 log_messages = []
@@ -36,8 +38,8 @@ def initialize_vector_db():
     else:
         log("Vector database found and ready to use.")
         return Chroma(persist_directory=DB_PATH,
-                      embedding_function=NomicEmbeddings(model="nomic-embed-text-v1.5",
-                                                         inference_mode="local"))
+                     embedding_function=NomicEmbeddings(model="nomic-embed-text-v1.5",
+                                                      inference_mode="local"))
 
 def create_vector_db(documents):
     """
@@ -88,21 +90,67 @@ def chat_with_model(query, context=None, metadata=None):
         return "An error occurred while generating a response. Please try again."
 
 # Функция для поиска ответа в векторной базе данных
-def retrieve_answer_from_vectorstore(query):
+def retrieve_answer_from_vectorstore(query, tag=None):
     if st.session_state.vectorstore is not None:
         log("Searching for relevant context in vector store...")
         try:
-            results = st.session_state.vectorstore.similarity_search(query, k=3)
+            results = []
+            if tag:
+                try:
+                    db_path = './chroma_db/chroma.sqlite3'
+                    if not os.path.exists(db_path):
+                        log(f"Database file not found at {db_path}. Please make sure the file exists and is accessible.")
+                        st.error(f"Database file not found at {db_path}. Please make sure the file exists and is accessible.")
+                        return None
+
+                    conn = sqlite3.connect(db_path)
+                    cursor = conn.cursor()
+                    log(f"Searching for tag: {tag}")
+                    query = "SELECT DISTINCT id FROM embedding_metadata WHERE key = 'tag' AND string_value = ?"
+                    cursor.execute(query, (tag.strip(),))
+                    rows = cursor.fetchall()
+                    document_ids = [row[0] for row in rows]
+
+                    # Извлекаем все метаданные и содержимое для найденных документов
+                    if document_ids:
+                        placeholders = ', '.join('?' for _ in document_ids)
+                        query = f"SELECT * FROM embedding_metadata WHERE id IN ({placeholders})"
+                        cursor.execute(query, document_ids)
+                        metadata_rows = cursor.fetchall()
+                        results = [Document(page_content=row[2], metadata={"id": row[0], "key": row[1], "string_value": row[2]}) for row in metadata_rows]
+                    conn.close()
+                except sqlite3.Error as e:
+                    log(f"Unable to open database file: {e}")
+                    st.error(f"Unable to open database file: {e}")
+                    return None
+            else:
+                results = st.session_state.vectorstore.similarity_search(query, k=3)
+
             if results:
-                log("Relevant documents found in vector store.")
+                log(f"Found {len(results)} results.")
                 return results
             else:
-                log("No relevant documents found in vector store.")
+                log("No relevant documents found in the vector store.")
         except Exception as e:
             log(f"Error retrieving from vector store: {e}")
     return None
 
 # Интерфейс для общения с чат-ботом
+# Получение списка уникальных тегов из базы данных
+try:
+    conn = sqlite3.connect(os.path.join(DB_PATH, 'chroma.sqlite3'))
+    cursor = conn.cursor()
+    cursor.execute("SELECT DISTINCT string_value FROM embedding_metadata WHERE key='tag'")
+    unique_tags = [row[0] for row in cursor.fetchall()]
+    conn.close()
+    log(f"Successfully retrieved unique tags from vector store: {unique_tags}")
+except Exception as e:
+    log(f"Error retrieving unique tags from vector store: {e}")
+    unique_tags = []
+
+unique_tags = [""] + unique_tags  # Добавляем пустое значение в начало списка
+
+tag_filter = st.selectbox("Filter by tag (optional):", unique_tags, key="tag_input")
 user_query = st.text_input("Ask the chatbot:", key="chat_input")
 
 # Создание фрейма для вывода ответа модели
@@ -111,28 +159,23 @@ response_frame = st.empty()
 # Добавлена функция для отправки по нажатию Enter
 def submit_chat():
     if user_query:
-        # Получаем дополнительный контекст из базы данных
-        relevant_docs = retrieve_answer_from_vectorstore(user_query)
+        # Получаем дополнительный контекст из базы данных с учетом фильтрации по тегу
+        relevant_docs = retrieve_answer_from_vectorstore(user_query, tag_filter if tag_filter else None)
         context = None
-        metadata = None
+        metadata = []
         if relevant_docs:
             context = "\n\n".join([doc.page_content for doc in relevant_docs])
-            # Создаем множество для хранения уникальных метаданных
-            unique_metadata = set()
-            metadata = []
+            # Собираем метаданные из документов
             for doc in relevant_docs:
-                meta_tuple = (doc.metadata.get("tag"), doc.metadata.get("source"))
-                if meta_tuple not in unique_metadata:
-                    unique_metadata.add(meta_tuple)
-                    metadata.append({"tag": meta_tuple[0], "source": meta_tuple[1]})
+                metadata.append(doc.metadata)
 
         # Получаем ответ от модели
         response = chat_with_model(user_query, context, metadata)
 
         # Отображаем ответ
         if metadata:
-            formatted_metadata = "\n".join([f"tag - {meta['tag']}\nsource - {meta['source']}\n" for meta in metadata if meta])
-            response_frame.write(response + "\n\n" + formatted_metadata)
+            formatted_metadata = "\n".join([f"source - {meta.get('source', 'N/A')} | tag - {meta.get('tag', 'N/A')}" for meta in metadata])
+            response_frame.write(response + "\n\nМетаданные:\n" + formatted_metadata)
         else:
             response_frame.write(response)
 
@@ -144,6 +187,13 @@ submit_chat()
 
 # Кнопка для управления содержимым векторной базы данных
 manage_vector_store_page(st.session_state.vectorstore, None)
+
+# Кнопка для сканирования векторной базы данных
+if st.sidebar.button("Scan Vector Store", key="scan_vector_store_btn_unique"):
+    st.session_state['show_scan_interface'] = not st.session_state.get('show_scan_interface', False)
+
+if st.session_state.get('show_scan_interface', False):
+    scan_vector_store(st.session_state.vectorstore)
 
 # Отображение логов в боковой панели
 st.sidebar.header("Logs")
