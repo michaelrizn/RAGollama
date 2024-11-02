@@ -5,6 +5,13 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_nomic.embeddings import NomicEmbeddings
 from langchain_community.vectorstores import Chroma
 
+# Функция для логирования
+log_messages = []
+
+def log(message):
+    log_messages.append(message)
+    st.session_state.logs = "\n".join(log_messages)
+
 
 def add_documents_to_db(vectorstore, documents):
     """
@@ -12,14 +19,14 @@ def add_documents_to_db(vectorstore, documents):
     :param vectorstore: Экземпляр существующей векторной базы данных.
     :param documents: Список новых документов для добавления.
     """
-    st.write("Adding new documents to the vector database...")
+    log("Adding new documents to the vector database...")
     text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
         chunk_size=1000, chunk_overlap=200
     )
     new_doc_splits = text_splitter.split_documents(documents)
     vectorstore.add_documents(new_doc_splits)
     vectorstore.persist()
-    st.write(f"Added {len(new_doc_splits)} new document chunks to the vector database and persisted changes.")
+    log(f"Added {len(new_doc_splits)} new document chunks to the vector database and persisted changes.")
 
 
 def manage_vector_store_page(vectorstore, _):
@@ -49,6 +56,8 @@ def manage_vector_store_page(vectorstore, _):
                     with open(file_path, "wb") as f:
                         f.write(uploaded_file.getbuffer())
 
+                    log(f"Uploaded file: {uploaded_file.name}")
+
                     # Проверка, существует ли файл с таким же именем в базе данных
                     all_docs = vectorstore._collection.get()
                     matching_ids = []
@@ -59,8 +68,7 @@ def manage_vector_store_page(vectorstore, _):
                     if matching_ids:
                         # Удаление всех существующих записей с таким именем файла
                         vectorstore._collection.delete(ids=matching_ids)
-                        st.write(
-                            f"Document with name {uploaded_file.name} already exists and will be replaced.")
+                        log(f"Document with name {uploaded_file.name} already exists and will be replaced.")
 
                     if uploaded_file.type == "application/pdf":
                         loader = PyMuPDFLoader(file_path)
@@ -68,6 +76,7 @@ def manage_vector_store_page(vectorstore, _):
                         loader = TextLoader(file_path)
                     else:
                         st.error("Unsupported file type.")
+                        log("Unsupported file type.")
                         return
 
                     documents = loader.load()
@@ -76,6 +85,7 @@ def manage_vector_store_page(vectorstore, _):
                         doc.metadata['source'] = uploaded_file.name
                     add_documents_to_db(vectorstore, documents)
                     st.success("Document added to vector store.")
+                    log("Document added to vector store.")
 
             st.markdown('---')  # Added horizontal line here
             url_input = st.text_input("Enter URL to add document from:", key="url_input")
@@ -100,14 +110,16 @@ def manage_vector_store_page(vectorstore, _):
                                 doc.metadata['source'] = url_input
                             add_documents_to_db(vectorstore, documents)
                             st.success("URL content added to vector store.")
+                            log(f"URL content from {url_input} added to vector store.")
                         except Exception as e:
                             st.error(f"Error processing URL: {e}")
-                    st.write('URL processing completed.')
+                            log(f"Error processing URL: {e}")
+                    log('URL processing completed.')
 
             if st.session_state['show_urlslist_button']:
                 st.markdown('---')
                 if st.button("Add URLs from urlslist.txt"):
-                    st.write('Starting URL processing...')
+                    log('Starting URL processing from urlslist.txt...')
                     url_list_path = "urlslist.txt"
                     try:
                         if os.path.exists(url_list_path):
@@ -151,19 +163,17 @@ def manage_vector_store_page(vectorstore, _):
                                 add_documents_to_db(vectorstore, documents)
 
                             # Вывод результатов
-                            st.write("URLs processing completed.")
+                            log("URLs processing completed.")
                             if added_urls:
-                                st.write("New URLs added:")
-                                for added_url in added_urls:
-                                    st.write(f"- {added_url}")
+                                log(f"New URLs added: {', '.join(added_urls)}")
                             if updated_urls:
-                                st.write("Updated URLs (existing documents were deleted and replaced):")
-                                for updated_url in updated_urls:
-                                    st.write(f"- {updated_url}")
+                                log(f"Updated URLs (existing documents were deleted and replaced): {', '.join(updated_urls)}")
                         else:
                             st.error("The file urlslist.txt does not exist.")
+                            log("The file urlslist.txt does not exist.")
                     except Exception as e:
                         st.error(f"Error processing URLs: {e}")
+                        log(f"Error processing URLs: {e}")
                     st.rerun()
 
             # Инициализация параметров пагинации
@@ -173,6 +183,7 @@ def manage_vector_store_page(vectorstore, _):
             # Просмотр записей в базе данных с пагинацией
             if st.button("View All Documents") or 'view_all_documents_clicked' in st.session_state:
                 st.session_state['view_all_documents_clicked'] = True
+                log("Viewing all documents in the vector store.")
                 try:
                     all_documents = vectorstore._collection.get()
                     documents = all_documents['documents']
@@ -194,6 +205,7 @@ def manage_vector_store_page(vectorstore, _):
                             with col1:
                                 if st.button("Previous Page", key="previous_page_top"):
                                     st.session_state['current_page'] -= 1
+                                    log("Navigated to previous page.")
                                     st.rerun()
                         with col2:
                             st.write(f"Page {st.session_state['current_page'] + 1} of {total_pages}")
@@ -201,6 +213,7 @@ def manage_vector_store_page(vectorstore, _):
                             with col3:
                                 if st.button("Next Page", key="next_page_top"):
                                     st.session_state['current_page'] += 1
+                                    log("Navigated to next page.")
                                     st.rerun()
 
                         for i, (doc, metadata, doc_id) in enumerate(
@@ -213,6 +226,7 @@ def manage_vector_store_page(vectorstore, _):
                                 # Удаляем вектор по его id
                                 vectorstore._collection.delete(ids=[doc_id])
                                 st.success(f"Document {i} deleted from vector store.")
+                                log(f"Document {i} deleted from vector store.")
                                 st.rerun()
                             if st.button(f"Edit Document {i}", key=f"edit_{i}"):
                                 new_content = st.text_area(f"Edit Content for Document {i}",
@@ -223,6 +237,7 @@ def manage_vector_store_page(vectorstore, _):
                                     vectorstore._collection.update(ids=[doc_id],
                                                                 documents=[new_content])
                                     st.success(f"Document {i} updated successfully.")
+                                    log(f"Document {i} updated successfully.")
                                     st.rerun()
                             st.markdown("---")  # Добавляем горизонтальный разделитель между записями
 
@@ -232,6 +247,7 @@ def manage_vector_store_page(vectorstore, _):
                             with col1:
                                 if st.button("Previous Page", key="previous_page_bottom"):
                                     st.session_state['current_page'] -= 1
+                                    log("Navigated to previous page.")
                                     st.rerun()
                         with col2:
                             st.write(f"Page {st.session_state['current_page'] + 1} of {total_pages}")
@@ -239,14 +255,22 @@ def manage_vector_store_page(vectorstore, _):
                             with col3:
                                 if st.button("Next Page", key="next_page_bottom"):
                                     st.session_state['current_page'] += 1
+                                    log("Navigated to next page.")
                                     st.rerun()
                     else:
                         st.warning("No documents found in the vector store.")
+                        log("No documents found in the vector store.")
                 except AttributeError as e:
                     st.error(f"Error retrieving documents from vector store: {str(e)}")
+                    log(f"Error retrieving documents from vector store: {str(e)}")
             st.markdown("</div>", unsafe_allow_html=True)
 
 
 if __name__ == "__main__":
     st.text_input("Ask the chatbot:", key="chat_input")
     manage_vector_store_page(st.session_state.vectorstore, None)
+
+# Логи отображаются в боковой панели
+st.sidebar.header("Logs")
+if 'logs' in st.session_state:
+    st.sidebar.write(st.session_state.logs)
