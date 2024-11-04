@@ -89,41 +89,19 @@ def chat_with_model(query, context=None, metadata=None):
         log(f"Error invoking the model: {e}")
         return "An error occurred while generating a response. Please try again."
 
-# Функция для поиска ответа в векторной базе данных
+# Обновленная функция для поиска ответа в векторной базе данных
 def retrieve_answer_from_vectorstore(query, tag=None):
     if st.session_state.vectorstore is not None:
         log("Searching for relevant context in vector store...")
         try:
-            results = []
             if tag:
-                try:
-                    db_path = './chroma_db/chroma.sqlite3'
-                    if not os.path.exists(db_path):
-                        log(f"Database file not found at {db_path}. Please make sure the file exists and is accessible.")
-                        st.error(f"Database file not found at {db_path}. Please make sure the file exists and is accessible.")
-                        return None
-
-                    conn = sqlite3.connect(db_path)
-                    cursor = conn.cursor()
-                    log(f"Searching for tag: {tag}")
-                    query = "SELECT DISTINCT id FROM embedding_metadata WHERE key = 'tag' AND string_value = ?"
-                    cursor.execute(query, (tag.strip(),))
-                    rows = cursor.fetchall()
-                    document_ids = [row[0] for row in rows]
-
-                    # Извлекаем все метаданные и содержимое для найденных документов
-                    if document_ids:
-                        placeholders = ', '.join('?' for _ in document_ids)
-                        query = f"SELECT * FROM embedding_metadata WHERE id IN ({placeholders})"
-                        cursor.execute(query, document_ids)
-                        metadata_rows = cursor.fetchall()
-                        results = [Document(page_content=row[2], metadata={"id": row[0], "key": row[1], "string_value": row[2]}) for row in metadata_rows]
-                    conn.close()
-                except sqlite3.Error as e:
-                    log(f"Unable to open database file: {e}")
-                    st.error(f"Unable to open database file: {e}")
-                    return None
+                # Используем встроенную фильтрацию Chroma для поиска только среди документов с указанным тегом
+                filter_dict = {"tag": tag}
+                log(f"Performing similarity search with tag filter: {tag}")
+                results = st.session_state.vectorstore.similarity_search(query, k=3, filter=filter_dict)
             else:
+                # Обычный поиск по запросу без фильтра
+                log("Performing similarity search without tag filter.")
                 results = st.session_state.vectorstore.similarity_search(query, k=3)
 
             if results:

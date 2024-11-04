@@ -2,21 +2,59 @@ import streamlit as st
 import json
 import sqlite3
 import os
+import requests
+from bs4 import BeautifulSoup
+from urllib.parse import urljoin, urlparse
+import re
+
 
 # Функция для логирования
-log_messages = []
-
 def log(message):
-    log_messages.append(message)
-    st.session_state.logs = "\n".join(log_messages)
+    if 'log_messages' not in st.session_state:
+        st.session_state.log_messages = []
+    st.session_state.log_messages.append(message)
+    st.session_state.logs = "\n".join(st.session_state.log_messages)
     st.sidebar.write(st.session_state.logs)
 
-def scan_vector_store(vectorstore, tag=None, key=None):
+
+def scan_site(url):
+    """
+    Сканирует указанный URL и извлекает непосредственные подразделы (ссылки) на этой странице.
+    :param url: URL страницы для сканирования.
+    :return: Список найденных URL.
+    """
+    visited = set()
+    urls = []
+    # Регулярное выражение для поиска ссылок на страницы Confluence
+    page_id_pattern = re.compile(r'viewpage\.action\?pageId=\d+')
+
+    try:
+        response = requests.get(url, timeout=10)
+        if response.status_code != 200:
+            log(f"Не удалось получить доступ к {url} (статус код: {response.status_code})")
+            return []
+        soup = BeautifulSoup(response.text, 'html.parser')
+
+        # Поиск всех ссылок, соответствующих паттерну Confluence
+        for link in soup.find_all('a', href=True):
+            href = link.get('href')
+            if page_id_pattern.search(href):
+                absolute_url = urljoin(url, href).split('#')[0]
+                # Избегаем добавления основной страницы
+                if absolute_url not in visited and absolute_url != url:
+                    visited.add(absolute_url)
+                    urls.append(absolute_url)
+                    log(f"Найден URL подраздела: {absolute_url}")
+    except requests.RequestException as e:
+        log(f"Ошибка при доступе к {url}: {e}")
+
+    return list(visited)
+
+
+def scan_vector_store(vectorstore):
     """
     Функция для поиска в векторной базе данных по ключевым словам и тегу.
     :param vectorstore: Экземпляр векторной базы данных.
-    :param tag: Тег для фильтрации результатов поиска (опционально).
-    :param key: Ключ для фильтрации метаданных (опционально).
     """
     # Получение списка уникальных тегов из базы данных
     try:
@@ -25,106 +63,90 @@ def scan_vector_store(vectorstore, tag=None, key=None):
         cursor.execute("SELECT DISTINCT string_value FROM embedding_metadata WHERE key='tag'")
         unique_tags = [row[0] for row in cursor.fetchall()]
         conn.close()
-        log(f"Successfully retrieved unique tags from vector store: {unique_tags}")
+        log(f"Успешно получены уникальные теги из векторного хранилища: {unique_tags}")
     except Exception as e:
-        log(f"Error retrieving unique tags from vector store: {e}")
+        log(f"Ошибка при получении уникальных тегов из векторного хранилища: {e}")
         unique_tags = []
 
     unique_tags = [""] + unique_tags  # Добавляем пустое значение в начало списка
 
-    # Выбор тега из выпадающего списка
-    tag_value = st.selectbox("Filter by tag (optional):", unique_tags, key="tag_input_scan")
-    search_query = st.text_input("Enter search query for vector store:", key="search_query_input_unique")
+    # Выбор тега из выпадающего списка с уникальным ключом
+    tag_value = st.selectbox("Filter by tag (optional):", unique_tags, key="tag_input_scan_unique")
 
+    # Ввод поискового запроса с уникальным ключом
+    search_query = st.text_input("Enter search query for vector store:",
+                                 key="search_query_input_unique_unique")
+
+    # Кнопка поиска с уникальным ключом
     if st.button("Search Vector Store", key="search_vector_store_btn_unique"):
         st.session_state['show_results'] = True
         st.session_state['show_scan_interface'] = True
-        log(f"Initiated search with query: '{search_query}' and tag: '{tag_value}'")
+        log(f"Инициирован поиск с запросом: '{search_query}' и тегом: '{tag_value}'")
 
+    # Кнопка очистки результатов поиска с уникальным ключом
     if st.button("Clear Search Results", key="clear_search_results_btn_unique"):
         st.session_state['trigger_search'] = False
         st.session_state['show_scan_interface'] = False
         st.session_state['show_results'] = False
+        st.session_state.logs = ""
         st.rerun()
-        log("Cleared search results.")
+        log("Результаты поиска очищены.")
 
     try:
         if st.session_state.get('show_results', False):
             results = []
             if tag_value:
-                try:
-                    db_path = './chroma_db/chroma.sqlite3'
-                    if not os.path.exists(db_path):
-                        log(f"Database file not found at {db_path}. Please make sure the file exists and is accessible.")
-                        st.error(f"Database file not found at {db_path}. Please make sure the file exists and is accessible.")
-                        return
+                # Используем встроенную фильтрацию Chroma для поиска только среди документов с указанным тегом
+                filter_dict = {"tag": tag_value}
+                log(f"Выполняется поиск по запросу с фильтром по тегу: {tag_value}")
+                log(f"Применён фильтр: {filter_dict}")
+                results = vectorstore.similarity_search(query=search_query, k=5, filter=filter_dict)
 
-                    conn = sqlite3.connect(db_path)
-                    cursor = conn.cursor()
-                    log(f"Searching for tag: {tag_value}")
-                    query = "SELECT DISTINCT id FROM embedding_metadata WHERE key = 'tag' AND string_value = ?"
-                    cursor.execute(query, (tag_value.strip(),))
-                    rows = cursor.fetchall()
-                    document_ids = [row[0] for row in rows]
-
-                    # Извлекаем все метаданные и содержимое для найденных документов
-                    if document_ids:
-                        placeholders = ', '.join('?' for _ in document_ids)
-                        query = f"SELECT * FROM embedding_metadata WHERE id IN ({placeholders})"
-                        cursor.execute(query, document_ids)
-                        results = cursor.fetchall()
-                    conn.close()
-                except sqlite3.Error as e:
-                    log(f"Unable to open database file: {e}")
-                    st.error(f"Unable to open database file: {e}")
-                    return
+                # Дополнительно логируем метаданные найденных документов
+                if results:
+                    for idx, doc in enumerate(results):
+                        log(f"Результат {idx + 1}: tag={doc.metadata.get('tag', 'N/A')}, source={doc.metadata.get('source', 'N/A')}")
             elif search_query:
-                log(f"Performing similarity search for query: '{search_query}'")
+                # Обычный поиск по запросу без фильтра
+                log("Выполняется обычный поиск без фильтра по тегу.")
                 results = vectorstore.similarity_search(query=search_query, k=5)
+                # Логирование метаданных результатов
+                if results:
+                    for idx, doc in enumerate(results):
+                        log(f"Результат {idx + 1}: tag={doc.metadata.get('tag', 'N/A')}, source={doc.metadata.get('source', 'N/A')}")
 
             if results:
-                log(f"Found {len(results)} results.")
+                log(f"Найдено {len(results)} результатов.")
                 st.write("Search results:")
-                current_id = None
-                current_document = {}
-                for result in results:
-                    result_id, key, string_value, int_value, float_value, bool_value = result
-                    if result_id != current_id:
-                        if current_document:
-                            # Выводим текущий документ
-                            st.write(f"Document ID: {current_id}")
-                            for k, v in current_document.items():
-                                st.write(f"{k}: {v}")
-                            st.markdown('---')
-                        current_id = result_id
-                        current_document = {}
-                    # Сохраняем метаданные в текущем документе
-                    current_document[key] = string_value or int_value or float_value or bool_value
-
-                # Выводим последний документ
-                if current_document:
-                    st.write(f"Document ID: {current_id}")
-                    for k, v in current_document.items():
-                        st.write(f"{k}: {v}")
+                for i, doc in enumerate(results, start=1):
+                    st.write(f"Document {i}: {doc.page_content[:200]}...")
+                    st.write(f"Metadata: {doc.metadata}")
                     st.markdown('---')
             else:
-                log("No relevant documents found in the vector store.")
+                log("Не найдено релевантных документов в векторном хранилище.")
                 st.write("No relevant documents found in the vector store.")
             st.session_state['show_results'] = False
     except Exception as e:
-        log(f"Error during search: {e}")
+        log(f"Ошибка во время поиска: {e}")
         st.error(f"Error during search: {e}")
 
+
+# Основной блок кода
 if 'vectorstore' in st.session_state:
-    if st.sidebar.button("Scan Vector Store", key="scan_vector_store_btn_unique"):
-        st.session_state['show_scan_interface'] = not st.session_state.get('show_scan_interface', False)
-        log("Toggled Scan Vector Store interface.")
+    # Кнопка "Scan Vector Store" с уникальным ключом
+    if st.sidebar.button("Scan Vector Store", key="scan_vector_store_btn_unique_main"):
+        st.session_state['show_scan_interface'] = not st.session_state.get('show_scan_interface',
+                                                                           False)
+        log("Интерфейс сканирования векторного хранилища переключён.")
+
     if st.session_state.get('show_scan_interface', False):
         with st.container():
             st.write("Manage or Edit Documents in Vector Store")
-            if st.button("View All Documents", key="view_all_documents_btn") or 'view_all_documents_clicked' in st.session_state:
+
+            # Кнопка "View All Documents" с уникальным ключом
+            if st.button("View All Documents", key="view_all_documents_btn_unique"):
                 st.session_state['view_all_documents_clicked'] = True
-                log("Viewing all documents in vector store.")
+                log("Просмотр всех документов в векторном хранилище.")
                 try:
                     all_documents = st.session_state.vectorstore._collection.get()
                     documents = all_documents['documents']
@@ -136,37 +158,94 @@ if 'vectorstore' in st.session_state:
                             st.session_state['current_page'] = 0
 
                         documents_per_page = 10
-                        total_pages = (len(documents) + documents_per_page - 1) // documents_per_page
+                        total_pages = (
+                                                  len(documents) + documents_per_page - 1) // documents_per_page
                         start_idx = st.session_state['current_page'] * documents_per_page
                         end_idx = min(start_idx + documents_per_page, len(documents))
                         current_documents = documents[start_idx:end_idx]
                         current_metadatas = metadatas[start_idx:end_idx]
                         current_ids = ids[start_idx:end_idx]
 
+                        # Верхние кнопки навигации с уникальными ключами
+                        col1, col2, col3 = st.columns([1, 1, 1])
+                        if st.session_state['current_page'] > 0:
+                            with col1:
+                                if st.button("Previous Page", key="previous_page_top_unique"):
+                                    st.session_state['current_page'] -= 1
+                                    log("Навигация на предыдущую страницу.")
+                                    st.rerun()
+                        with col2:
+                            st.write(
+                                f"Page {st.session_state['current_page'] + 1} of {total_pages}")
+                        if st.session_state['current_page'] < total_pages - 1:
+                            with col3:
+                                if st.button("Next Page", key="next_page_top_unique"):
+                                    st.session_state['current_page'] += 1
+                                    log("Навигация на следующую страницу.")
+                                    st.rerun()
+
                         for i, (doc, metadata, doc_id) in enumerate(
                                 zip(current_documents, current_metadatas, current_ids),
                                 start=start_idx + 1):
-                            preview_content = doc[:200]
+                            preview_content = doc[:200]  # Отображаем первые 200 символов документа
                             st.write(f"Document {i}: {preview_content}...")
                             st.write(f"Metadata: {metadata}")
-                            if st.button(f"Delete Document {i}", key=f"delete_{i}"):
+
+                            # Кнопка "Delete Document" с уникальным ключом
+                            if st.button(f"Delete Document {i}", key=f"delete_{i}_unique"):
+                                # Удаляем вектор по его id
                                 st.session_state.vectorstore._collection.delete(ids=[doc_id])
-                                log(f"Document {i} deleted from vector store.")
                                 st.success(f"Document {i} deleted from vector store.")
+                                log(f"Документ {i} удалён из векторного хранилища.")
                                 st.rerun()
-                            if st.button(f"Edit Document {i}", key=f"edit_{i}"):
-                                new_content = st.text_area(f"Edit Content for Document {i}", value=doc, key=f"edit_content_{i}")
-                                if st.button(f"Save Changes for Document {i}", key=f"save_edit_{i}"):
-                                    st.session_state.vectorstore._collection.update(ids=[doc_id], documents=[new_content])
-                                    log(f"Document {i} updated successfully.")
+
+                            # Кнопка "Edit Document" с уникальным ключом
+                            if st.button(f"Edit Document {i}", key=f"edit_{i}_unique"):
+                                new_content = st.text_area(f"Edit Content for Document {i}",
+                                                           value=doc,
+                                                           key=f"edit_content_{i}_unique")
+                                # Кнопка "Save Changes" с уникальным ключом
+                                if st.button(f"Save Changes for Document {i}",
+                                             key=f"save_edit_{i}_unique"):
+                                    # Обновляем содержимое документа
+                                    st.session_state.vectorstore._collection.update(ids=[doc_id],
+                                                                                    documents=[
+                                                                                        new_content])
                                     st.success(f"Document {i} updated successfully.")
+                                    log(f"Документ {i} обновлён успешно.")
                                     st.rerun()
-                            st.markdown("---")
+                            st.markdown(
+                                "---")  # Добавляем горизонтальный разделитель между записями
+
+                        # Нижние кнопки навигации с уникальными ключами
+                        col1, col2, col3 = st.columns([1, 1, 1])
+                        if st.session_state['current_page'] > 0:
+                            with col1:
+                                if st.button("Previous Page", key="previous_page_bottom_unique"):
+                                    st.session_state['current_page'] -= 1
+                                    log("Навигация на предыдущую страницу.")
+                                    st.rerun()
+                        with col2:
+                            st.write(
+                                f"Page {st.session_state['current_page'] + 1} of {total_pages}")
+                        if st.session_state['current_page'] < total_pages - 1:
+                            with col3:
+                                if st.button("Next Page", key="next_page_bottom_unique"):
+                                    st.session_state['current_page'] += 1
+                                    log("Навигация на следующую страницу.")
+                                    st.rerun()
+                    else:
+                        st.warning("No documents found in the vector store.")
+                        log("Векторное хранилище пусто.")
                 except AttributeError as e:
-                    log(f"Error retrieving documents from vector store: {str(e)}")
+                    log(f"Ошибка при получении документов из векторного хранилища: {str(e)}")
                     st.error(f"Error retrieving documents from vector store: {str(e)}")
+
+            # Раздел поиска векторного хранилища
             st.markdown("### Vector Store Search")
-            tag_filter = st.text_input("Enter value for metadata filter (optional):", key="tag_filter_input_unique").strip()
+            # Поле ввода для фильтрации метаданных с уникальным ключом
+            tag_filter = st.text_input("Enter value for metadata filter (optional):",
+                                       key="tag_filter_input_unique_2").strip()
             scan_vector_store(st.session_state.vectorstore, tag=tag_filter)
 else:
     log("Vectorstore not initialized.")

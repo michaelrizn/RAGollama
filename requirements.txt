@@ -13,3 +13,5 @@ watchdog
 faiss-cpu
 chromadb
 pymupdf
+beautifulsoup4
+selenium
