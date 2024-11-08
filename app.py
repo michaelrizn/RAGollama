@@ -10,13 +10,16 @@ from langchain_core.messages import HumanMessage, SystemMessage
 import json
 from editor import manage_vector_store_page
 from scan import scan_vector_store
+import subprocess  # Импортируем subprocess для выполнения команд оболочки
 
 # Функция для логирования
 log_messages = []
 
+
 def log(message):
     log_messages.append(message)
     st.session_state.logs = "\n".join(log_messages)
+
 
 # Установка переменной окружения USER_AGENT
 if not os.getenv("USER_AGENT"):
@@ -25,6 +28,7 @@ if not os.getenv("USER_AGENT"):
 
 # Функции для работы с векторной базой данных
 DB_PATH = "./chroma_db"
+
 
 def initialize_vector_db():
     """
@@ -38,8 +42,9 @@ def initialize_vector_db():
     else:
         log("Vector database found and ready to use.")
         return Chroma(persist_directory=DB_PATH,
-                     embedding_function=NomicEmbeddings(model="nomic-embed-text-v1.5",
-                                                      inference_mode="local"))
+                      embedding_function=NomicEmbeddings(model="nomic-embed-text-v1.5",
+                                                         inference_mode="local"))
+
 
 def create_vector_db(documents):
     """
@@ -52,7 +57,7 @@ def create_vector_db(documents):
         chunk_size=1000, chunk_overlap=200
     )
     doc_splits = text_splitter.split_documents(documents)
-    log(f"Documents split into {len(doc_splits)} chunks for vectorization.")
+    log(f"Documents split into {len(doc_splits)} chunks для векторизации.")
 
     embeddings = NomicEmbeddings(model="nomic-embed-text-v1.5", inference_mode="local")
     vectorstore = Chroma.from_documents(doc_splits, embeddings, persist_directory=DB_PATH)
@@ -60,17 +65,64 @@ def create_vector_db(documents):
     log("Vector database created successfully and persisted locally.")
     return vectorstore
 
+
 # Инициализация состояния для хранения векторной базы данных
 if 'vectorstore' not in st.session_state:
     st.session_state.vectorstore = initialize_vector_db()
     log("Initialized vectorstore for session state.")
 
+
+# Функция для получения списка доступных моделей Ollama
+@st.cache_data
+def get_available_models():
+    try:
+        # Выполняем команду 'ollama list'
+        result = subprocess.run(['ollama', 'list'], capture_output=True, text=True, check=True)
+        lines = result.stdout.strip().split('\n')
+
+        # Проверяем, есть ли вывод
+        if not lines:
+            log("No models found in Ollama.")
+            return []
+
+        # Предполагаем, что первая строка — заголовок, поэтому пропускаем ее
+        model_lines = lines[1:] if len(lines) > 1 else lines
+
+        models = []
+        for line in model_lines:
+            # Разделяем строку по пробелам и берем первый элемент как название модели
+            parts = line.split()
+            if parts:
+                model_name = parts[0]
+                models.append(model_name)
+
+        log(f"Available Ollama models: {models}")
+        return models
+    except subprocess.CalledProcessError as e:
+        log(f"Error fetching models from Ollama: {e}")
+        return []
+    except Exception as e:
+        log(f"Unexpected error fetching models: {e}")
+        return []
+
+
+# Получение списка доступных моделей
+available_models = get_available_models()
+
+# Если модели не найдены, добавить дефолтную модель
+if not available_models:
+    available_models = [
+        "llama3.2:1b-instruct-fp16"]  # Можно изменить на подходящую модель по умолчанию
+
+# Добавление выпадающего меню для выбора модели
+selected_model = st.selectbox("Выберите модель Ollama:", available_models, key="model_selection")
+
+
 # Функция для общения с моделью
 def chat_with_model(query, context=None, metadata=None):
     log(f"User query: {query}")
-    local_llm = "llama3.2:1b-instruct-fp16"
-    llm = ChatOllama(model=local_llm, temperature=0)
-    log("Initializing connection to the model...")
+    llm = ChatOllama(model=selected_model, temperature=0)  # Используем выбранную модель
+    log(f"Initializing connection to the model: {selected_model}")
     try:
         system_prompt = "You are a helpful AI assistant. Answer the question using your knowledge. If context is provided, use it to enhance your answer but don't limit yourself to it."
         content = f"Question: {query}"
@@ -89,6 +141,7 @@ def chat_with_model(query, context=None, metadata=None):
         log(f"Error invoking the model: {e}")
         return "An error occurred while generating a response. Please try again."
 
+
 # Обновленная функция для поиска ответа в векторной базе данных
 def retrieve_answer_from_vectorstore(query, tag=None):
     if st.session_state.vectorstore is not None:
@@ -98,7 +151,8 @@ def retrieve_answer_from_vectorstore(query, tag=None):
                 # Используем встроенную фильтрацию Chroma для поиска только среди документов с указанным тегом
                 filter_dict = {"tag": tag}
                 log(f"Performing similarity search with tag filter: {tag}")
-                results = st.session_state.vectorstore.similarity_search(query, k=3, filter=filter_dict)
+                results = st.session_state.vectorstore.similarity_search(query, k=3,
+                                                                         filter=filter_dict)
             else:
                 # Обычный поиск по запросу без фильтра
                 log("Performing similarity search without tag filter.")
@@ -112,6 +166,7 @@ def retrieve_answer_from_vectorstore(query, tag=None):
         except Exception as e:
             log(f"Error retrieving from vector store: {e}")
     return None
+
 
 # Интерфейс для общения с чат-ботом
 # Получение списка уникальных тегов из базы данных
@@ -134,11 +189,13 @@ user_query = st.text_input("Ask the chatbot:", key="chat_input")
 # Создание фрейма для вывода ответа модели
 response_frame = st.empty()
 
+
 # Добавлена функция для отправки по нажатию Enter
 def submit_chat():
     if user_query:
         # Получаем дополнительный контекст из базы данных с учетом фильтрации по тегу
-        relevant_docs = retrieve_answer_from_vectorstore(user_query, tag_filter if tag_filter else None)
+        relevant_docs = retrieve_answer_from_vectorstore(user_query,
+                                                         tag_filter if tag_filter else None)
         context = None
         metadata = []
         if relevant_docs:
@@ -152,10 +209,13 @@ def submit_chat():
 
         # Отображаем ответ
         if metadata:
-            formatted_metadata = "\n".join([f"source - {meta.get('source', 'N/A')} | tag - {meta.get('tag', 'N/A')}" for meta in metadata])
+            formatted_metadata = "\n".join(
+                [f"source - {meta.get('source', 'N/A')} | tag - {meta.get('tag', 'N/A')}" for meta
+                 in metadata])
             response_frame.write(response + "\n\nМетаданные:\n" + formatted_metadata)
         else:
             response_frame.write(response)
+
 
 # Создаем колонки для кнопок
 col1, col2 = st.columns([1, 0.1])
