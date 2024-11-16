@@ -1,6 +1,9 @@
 # Ignore database files created by Chroma
 chroma_db/
 
+# Ignore URLs list file
+urlslist.txt
+
 # Python related
 *.pyc
 __pycache__/
@@ -18,3 +21,19 @@ Thumbs.db
 # Logs and temporary files
 *.log
 *.tmp
+
+# IDE settings
+.vscode/
+*.code-workspace
+.idea/
+
+# Python package managers
+Pipfile.lock
+poetry.lock
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# Docker
+docker-compose.override.yml
+.env
