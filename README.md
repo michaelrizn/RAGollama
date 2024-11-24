@@ -5,11 +5,14 @@
 - API (FastAPI) для взаимодействия с векторным хранилищем через HTTP-запросы.
 - CLI для выполнения операций через командную строку.
 - Интеграции с Ollama для общения с моделью чат-бота с учетом контекста и тегов.
+- Парсинг ссылок с веб-страниц для добавления их в хранилище.
 
 Основные возможности:
 1. Добавление документов (файлов или URL) в векторное хранилище.
 2. Поиск документов по запросу и тегам.
 3. Общение с моделью чат-бота с использованием контекста из векторного хранилища.
+4. Парсинг ссылок с веб-страниц с добавлением тегов.
+5. Добавление URL из файлов в векторное хранилище.
 
 ---
 
@@ -25,6 +28,8 @@ project/
 │   ├── search_utils.py      # Реализация поиска документов
 │   ├── document_utils.py    # Реализация добавления документов
 │   ├── chat_utils.py        # Общение с Ollama
+│   ├── urlparser_utils.py   # Парсинг ссылок с веб-страниц
+│   ├── urlslistaddbd_utils.py # Обработка URL из файлов
 │   ├── api.py               # Реализация API (FastAPI)
 │   ├── cli.py               # Реализация CLI (Click)
 ├── chroma_db/               # Директория для векторного хранилища
@@ -101,6 +106,23 @@ uvicorn app.api:app --reload
           "tag": "тег (опционально)"
       }
       ```
+- **`POST /parse-links`** - Парсинг ссылок с веб-страницы.
+    - Параметры запроса (JSON):
+      ```json
+      {
+          "base_url": "URL веб-страницы",
+          "tag": "тег",
+          "username": "логин (опционально)",
+          "password": "пароль (опционально)"
+      }
+      ```
+- **`POST /add-urls-from-file`** - Добавление URL из файла в векторное хранилище.
+    - Параметры запроса (JSON):
+      ```json
+      {
+          "url_list_path": "путь_до_файла_с_URL"
+      }
+      ```
 
 ### Использование CLI
 
@@ -128,6 +150,16 @@ python -m app.cli
 - **Общение с моделью:**
     ```bash
     python -m app.cli chat --query "вопрос" --context "дополнительный контекст" --tag "тег"
+    ```
+
+- **Парсинг ссылок:**
+    ```bash
+    python -m app.cli parse-links --base-url "URL страницы" --tag "тег"
+    ```
+
+- **Добавление URL из файла:**
+    ```bash
+    python -m app.cli add-urls-from-file --url-list-path "путь_до_файла"
     ```
 
 ---
@@ -176,48 +208,18 @@ curl -X POST "http://127.0.0.1:8000/chat" \
 -d '{"query": "example question", "context": "example context", "tag": "example_tag"}'
 ```
 
----
-
-## Логирование
-
-Все логи записываются в консоль. Уровень логирования и формат настраиваются в `config.yaml`.
-
----
-
-## Зависимости
-Список всех зависимостей проекта содержится в файле `requirements.txt`:
+### Парсинг ссылок через API
+```bash
+curl -X POST "http://127.0.0.1:8000/parse-links" \
+-H "Content-Type: application/json" \
+-d '{"base_url": "http://example.com", "tag": "example_tag", "username": "user", "password": "pass"}'
 ```
-fastapi
-uvicorn
-click
-langchain
-langchain_community
-langchain-ollama
-langchain-nomic
-tiktoken
-scikit-learn
-streamlit
-beautifulsoup4
-tavily-python
-nomic[local]
-gpt4all
-watchdog
-faiss-cpu
-chromadb
-pymupdf
-selenium
-requests
-PyYAML
+
+### Добавление URL из файла через API
+```bash
+curl -X POST "http://127.0.0.1:8000/add-urls-from-file" \
+-H "Content-Type: application/json" \
+-d '{"url_list_path": "path/to/urlslist.txt"}'
 ```
 
 ---
-
-## Примечания
-1. Перед использованием убедитесь, что сервер Ollama запущен. Если он не запущен, приложение попытается автоматически его стартовать.
-2. Для добавления файлов убедитесь, что указанный путь корректен и файл доступен для чтения.
-3. Поиск с тегом "all" игнорирует фильтрацию по тегам и выполняет поиск по всему хранилищу.
-
----
-
-## Контакты
-Если у вас есть вопросы или предложения, свяжитесь с нами через [email@example.com].

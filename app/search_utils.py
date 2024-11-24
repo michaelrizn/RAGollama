@@ -1,6 +1,7 @@
 from langchain_community.vectorstores import Chroma
 from langchain_nomic.embeddings import NomicEmbeddings
 
+
 def search_documents(query, tag, config, log_func=None):
     """
     Выполняет поиск документов в векторном хранилище.
@@ -29,16 +30,16 @@ def search_documents(query, tag, config, log_func=None):
         results = []
         if tag:
             if tag.lower() == "all":
-                results = vectorstore.similarity_search(query, k=5)
+                results = vectorstore.similarity_search(query, k=10)
                 if log_func:
                     log_func("Поиск по всей базе данных выполнен успешно.")
             else:
                 filter_dict = {"tag": tag}
-                results = vectorstore.similarity_search(query, k=5, filter=filter_dict)
+                results = vectorstore.similarity_search(query, k=10, filter=filter_dict)
                 if log_func:
                     log_func(f"Поиск с фильтром по тегу '{tag}' выполнен успешно.")
         else:
-            results = vectorstore.similarity_search(query, k=5)
+            results = vectorstore.similarity_search(query, k=10)
             if log_func:
                 log_func("Поиск без фильтрации по тегу выполнен успешно.")
 
