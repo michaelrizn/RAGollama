@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Таблица метаданных</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #121212;
+            color: #ffffff;
+            margin: 0;
+            padding: 0;
+        }
+
+        .container {
+            width: 100%;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .search-form {
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .search-form input {
+            padding: 10px;
+            border: 1px solid #444;
+            background-color: #333;
+            color: #fff;
+            border-radius: 4px;
+            width: 300px;
+        }
+
+        .search-form button {
+            padding: 10px 20px;
+            border: none;
+            background-color: #444;
+            color: #fff;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .search-form button:hover {
+            background-color: #555;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            background-color: #1e1e1e;
+            color: #ffffff;
+            border: 1px solid #444;
+        }
+
+        table th, table td {
+            padding: 10px;
+            text-align: center;
+            border: 1px solid #444;
+            word-wrap: break-word;
+        }
+
+        table th {
+            background-color: #333;
+        }
+
+        .pagination {
+            margin: 10px 0;
+            text-align: center;
+        }
+
+        .pagination a, .pagination span {
+            margin: 0 5px;
+            padding: 10px 15px;
+            text-decoration: none;
+            background-color: #444;
+            color: #fff;
+            border-radius: 5px;
+            display: inline-block;
+        }
+
+        .pagination a:hover {
+            background-color: #555;
+        }
+
+        .pagination span {
+            background-color: #555;
+        }
+
+        .edit-button {
+            display: inline-block;
+            padding: 8px 12px;
+            background-color: #444;
+            color: #fff;
+            text-decoration: none;
+            border-radius: 4px;
+        }
+
+        .edit-button:hover {
+            background-color: #555;
+        }
+
+        .record-block {
+            margin-bottom: 20px;
+        }
+
+        .record-header {
+            font-weight: bold;
+            background-color: #444;
+            padding: 10px;
+            border-radius: 5px;
+            text-align: center;
+            margin-bottom: 10px;
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Таблица метаданных</h1>
+
+        <!-- Форма для поиска -->
+        <form method="get" action="/table/" class="search-form">
+            <input type="text" name="search" placeholder="Поиск..." value="{{ search or '' }}">
+            <button type="submit">Найти</button>
+        </form>
+
+        <!-- Верхняя пагинация -->
+        <div class="pagination">
+            {% if page > 1 %}
+            <a href="/table/?page={{ page - 1 }}{% if search %}&search={{ search }}{% endif %}">Предыдущая</a>
+            {% endif %}
+            {% for p in range(1, total_pages + 1) %}
+            {% if p == page %}
+            <span>{{ p }}</span>
+            {% else %}
+            <a href="/table/?page={{ p }}{% if search %}&search={{ search }}{% endif %}">{{ p }}</a>
+            {% endif %}
+            {% endfor %}
+            {% if page < total_pages %}
+            <a href="/table/?page={{ page + 1 }}{% if search %}&search={{ search }}{% endif %}">Следующая</a>
+            {% endif %}
+        </div>
+
+        <!-- Таблица записей, сгруппированных по ID -->
+        {% for group_id, group_records in records|groupby("id") %}
+        <div class="record-block">
+            <div class="record-header">ID: {{ group_id }}</div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Ключ</th>
+                        <th>Строковое значение</th>
+                        <th>Действия</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for record in group_records %}
+                    <tr>
+                        <td>{{ record.key }}</td>
+                        <td>{{ record.string_value or 'N/A' }}</td>
+                        <td>
+                            <a href="/table/edit/{{ record.id }}" class="edit-button">Редактировать</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endfor %}
+
+        <!-- Нижняя пагинация -->
+        <div class="pagination">
+            {% if page > 1 %}
+            <a href="/table/?page={{ page - 1 }}{% if search %}&search={{ search }}{% endif %}">Предыдущая</a>
+            {% endif %}
+            {% for p in range(1, total_pages + 1) %}
+            {% if p == page %}
+            <span>{{ p }}</span>
+            {% else %}
+            <a href="/table/?page={{ p }}{% if search %}&search={{ search }}{% endif %}">{{ p }}</a>
+            {% endif %}
+            {% endfor %}
+            {% if page < total_pages %}
+            <a href="/table/?page={{ page + 1 }}{% if search %}&search={{ search }}{% endif %}">Следующая</a>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>

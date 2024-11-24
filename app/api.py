@@ -1,5 +1,3 @@
-# api.py
-
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from app.config import Config
@@ -9,9 +7,13 @@ from app.document_utils import add_document_to_store
 from app.chat_utils import chat_with_model
 from app.urlparser_utils import parse_and_save_urls
 from app.urlslistaddbd_utils import add_urls_from_file
+from app.table_management import router as table_router  # Импорт маршрутов таблицы
 
 # Инициализация FastAPI
 app = FastAPI()
+
+# Подключение маршрутов таблицы
+app.include_router(table_router, prefix="/table")
 
 # Загрузка конфигурации
 config = Config.load("config.yaml")
