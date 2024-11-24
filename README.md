@@ -180,57 +180,6 @@ uvicorn app.api:app --reload
 
 ---
 
-## Конфигурация
-
-Пример файла `config.yaml`:
-```yaml
-user_agent: "MyStandaloneScript/1.0"
-
-vector_db:
-  persist_directory: "./chroma_db"
-  embedding_model: "nomic-embed-text-v1.5"
-  inference_mode: "local"
-
-ollama:
-  default_model: "llama3.2:1b-instruct-fp16"
-
-logging:
-  level: "INFO"
-  format: "%(asctime)s - %(levelname)s - %(message)s"
-```
-
----
-
-## Примеры запросов
-
-### Добавление документа через API
-```bash
-curl -X POST "http://127.0.0.1:8000/add-document" \
--H "Content-Type: application/json" \
--d '{"source": "path/to/file.txt", "tag": "example_tag"}'
-```
-
-### Поиск документов через API
-```bash
-curl -X POST "http://127.0.0.1:8000/search" \
--H "Content-Type: application/json" \
--d '{"query": "example query", "tag": "example_tag"}'
-```
-
-### Общение с моделью через API
-```bash
-curl -X POST "http://127.0.0.1:8000/chat" \
--H "Content-Type: application/json" \
--d '{"query": "example question", "context": "example context", "tag": "example_tag"}'
-```
-
-### Парсинг ссылок через API
-```bash
-curl -X POST "http://127.0.0.1:8000/parse-links" \
--H "Content-Type: application/json" \
--d '{"base_url": "example.com", "tag": "example_tag"}'
-```
-
 
 
 
