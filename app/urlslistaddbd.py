@@ -1,3 +1,5 @@
+# app/urlslistaddbd.py
+
 import os
 import sys
 import logging
@@ -5,47 +7,21 @@ from langchain_community.document_loaders import WebBaseLoader
 from langchain_nomic.embeddings import NomicEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+from app.db_utils import add_documents_to_db
 
-# Установка переменной окружения USER_AGENT, если она не установлена
-if not os.getenv("USER_AGENT"):
-    os.environ["USER_AGENT"] = "MyStandaloneScript/1.0"
-    print("USER_AGENT environment variable set to: MyStandaloneScript/1.0")
-
-def setup_logging():
-    """
-    Настройка логирования для скрипта.
-
-    Returns:
-        Logger объект.
-    """
-    logger = logging.getLogger('URLsListAddBD')
-    logger.setLevel(logging.INFO)
-
-    # Создание обработчиков
-    c_handler = logging.StreamHandler()
-    c_handler.setLevel(logging.INFO)
-
-    # Создание форматтера и добавление его к обработчику
-    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-    c_handler.setFormatter(formatter)
-
-    # Добавление обработчика к логгеру
-    logger.addHandler(c_handler)
-
-    return logger
-
-def initialize_vector_store(persist_directory="chroma_db"):
+def initialize_vector_store(config, logger):
     """
     Инициализация векторного хранилища.
 
     Args:
-        persist_directory (str): Директория для сохранения векторного хранилища.
+        config: Конфигурационный объект.
+        logger: Объект логгера.
     Returns:
         Инициализированное векторное хранилище.
     """
     try:
-        embeddings = NomicEmbeddings(model="nomic-embed-text-v1.5", inference_mode="local")
-        vectorstore = Chroma(persist_directory=persist_directory,
+        embeddings = NomicEmbeddings(model=config.vector_db.embedding_model, inference_mode=config.vector_db.inference_mode)
+        vectorstore = Chroma(persist_directory=config.vector_db.persist_directory,
                              embedding_function=embeddings)
         return vectorstore
     except Exception as e:
@@ -82,26 +58,6 @@ def read_urls_from_file(url_list_path="urlslist.txt"):
             tag = ""
         url_list.append((url, tag))
     return url_list
-
-def add_documents_to_db(vectorstore, documents, log_func=None):
-    """
-    Добавляет новые документы в существующую векторную базу данных с использованием Chroma.
-
-    Args:
-        vectorstore: Экземпляр векторного хранилища.
-        documents: Список документов для добавления.
-        log_func (callable, optional): Функция для логирования сообщений.
-    """
-    if log_func:
-        log_func("Добавление новых документов в векторную базу данных...")
-    text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
-        chunk_size=1000, chunk_overlap=200
-    )
-    new_doc_splits = text_splitter.split_documents(documents)
-    vectorstore.add_documents(new_doc_splits)
-    vectorstore.persist()
-    if log_func:
-        log_func(f"Добавлено {len(new_doc_splits)} новых частей документов в векторную базу данных и изменения сохранены.")
 
 def process_urls(vectorstore, url_list, logger):
     """
@@ -150,32 +106,3 @@ def process_urls(vectorstore, url_list, logger):
         logger.info(f"Добавлены новые URL: {', '.join(added_urls)}")
     if updated_urls:
         logger.info(f"Обновлены URL (существующие документы были удалены и заменены): {', '.join(updated_urls)}")
-
-def main():
-    """
-    Основная функция для выполнения скрипта.
-    """
-    global logger
-    logger = setup_logging()
-
-    # Инициализация векторного хранилища
-    try:
-        vectorstore = initialize_vector_store()
-        logger.info("Векторное хранилище инициализировано.")
-    except Exception as e:
-        logger.error(f"Не удалось инициализировать векторное хранилище: {e}")
-        sys.exit(1)
-
-    # Чтение URL из файла
-    try:
-        url_list = read_urls_from_file()
-        logger.info(f"Прочитано {len(url_list)} URL из 'urlslist.txt'.")
-    except Exception as e:
-        logger.error(e)
-        sys.exit(1)
-
-    # Обработка URL
-    process_urls(vectorstore, url_list, logger)
-
-if __name__ == "__main__":
-    main()

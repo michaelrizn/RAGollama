@@ -1,18 +1,22 @@
-langchain
-langchain_community
-langchain-ollama
-langchain-nomic
-tiktoken
-scikit-learn
-streamlit
-bs4
-tavily-python
-nomic[local]
-gpt4all
-watchdog
-faiss-cpu
-chromadb
-pymupdf
-beautifulsoup4
-selenium
-requests
+fastapi                # Для создания API
+uvicorn                # Для запуска API-сервера
+click                  # Для создания CLI интерфейса
+langchain              # Основная библиотека LangChain
+langchain-chroma       # Для работы с Chroma из нового пакета
+langchain_community    # Компоненты сообщества для LangChain
+langchain-ollama       # Интеграция с Ollama
+langchain-nomic        # Векторные эмбеддинги от Nomic AI
+tiktoken               # Токенизация текста
+scikit-learn           # Методы машинного обучения (опционально)
+streamlit              # Визуальный интерфейс
+beautifulsoup4         # Для работы с HTML (парсинг страниц)
+tavily-python          # Управление AI моделью GPT4All
+nomic[local]           # Поддержка локального режима для Nomic
+gpt4all                # Локальные LLM (например, GPT4All)
+watchdog               # Отслеживание изменений в файловой системе
+faiss-cpu              # Библиотека для векторного поиска (CPU)
+chromadb               # Актуальная реализация Chroma векторного хранилища
+pymupdf                # Для работы с PDF файлами
+selenium               # Управление браузером для парсинга сложных страниц
+requests               # Работа с HTTP-запросами
+PyYAML                 # Работа с YAML файлами (например, для конфигурации)

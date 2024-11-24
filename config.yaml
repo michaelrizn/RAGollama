@@ -1,0 +1,15 @@
+# config.yaml
+
+user_agent: "MyStandaloneScript/1.0"
+
+vector_db:
+  persist_directory: "./chroma_db"
+  embedding_model: "nomic-embed-text-v1.5"
+  inference_mode: "local"
+
+ollama:
+  default_model: "llama3.2:1b-instruct-fp16"
+
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(levelname)s - %(message)s"

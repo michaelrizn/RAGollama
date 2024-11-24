@@ -1,6 +1,9 @@
 # Ignore database files created by Chroma
 chroma_db/
 
+# Old files
+old/
+
 # Ignore URLs list file
 urlslist.txt
 
