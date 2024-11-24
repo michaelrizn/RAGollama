@@ -1,98 +1,114 @@
-# urlslistaddbd_utils.py
-
 import os
-import requests
-from app.urlparser_utils import read_urls_from_file
-from app.document_utils import add_document_to_store
-from langchain_chroma import Chroma  # Обновлённый импорт
+from langchain_chroma import Chroma
 from langchain_nomic.embeddings import NomicEmbeddings
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.schema import Document  # Добавили импорт Document
+from langchain.schema import Document
+from app.document_utils import add_document_to_store
+from app.db_utils import remove_existing_documents
 
-def initialize_vector_store(persist_directory="chroma_db"):
+def initialize_vector_store(persist_directory="chroma_db", log_func=None):
     """
-    Инициализация векторного хранилища.
-    """
-    embeddings = NomicEmbeddings(model="nomic-embed-text-v1.5", inference_mode="local")
-    return Chroma(persist_directory=persist_directory, embedding_function=embeddings)
-
-def add_urls_from_file(config, log_func=None, url_list_path="urlslist.txt", username=None, password=None):
-    """
-    Добавляет URL из файла в векторное хранилище.
+    Инициализирует базу данных с тестовой записью, если она не существует.
 
     Args:
-        config: Конфигурационный объект.
-        log_func: Функция для логирования.
-        url_list_path (str): Путь к файлу со списком URL.
-        username (str, optional): Логин для авторизации.
-        password (str, optional): Пароль для авторизации.
+        persist_directory (str): Директория для сохранения базы.
+        log_func (callable, optional): Функция для логирования.
+
+    Returns:
+        vectorstore: Инициализированное векторное хранилище.
     """
-    session = requests.Session()
+    embeddings = NomicEmbeddings(model="nomic-embed-text-v1.5", inference_mode="local")
+    vectorstore = Chroma(persist_directory=persist_directory, embedding_function=embeddings)
 
-    # Установка User-Agent
-    user_agent = os.getenv("USER_AGENT", "MyCustomUserAgent/1.0")
-    session.headers.update({'User-Agent': user_agent})
-
-    # Если логин и пароль предоставлены, используем их для авторизации
-    if username and password:
-        session.auth = (username, password)
-        if log_func:
-            log_func("Используется предоставленная авторизация.")
-
+    # Проверяем и инициализируем базу данных
     try:
-        vectorstore = initialize_vector_store(config.vector_db.persist_directory)
-        urls = read_urls_from_file(url_list_path)
-
-        for url, tag in urls:
-            try:
-                # Проверка существования URL в базе данных
-                all_docs = vectorstore._collection.get()
-                matching_ids = [
-                    doc_id for doc_id, metadata in zip(all_docs['ids'], all_docs['metadatas'])
-                    if metadata.get('source') == url
-                ]
-
-                if matching_ids:
-                    vectorstore._collection.delete(ids=matching_ids)
-                    if log_func:
-                        log_func(f"Существующие записи для URL '{url}', Тег: '{tag}' найдены и удалены.")
-
-                # Получение содержимого страницы
-                response = session.get(url)
-                if response.status_code == 401:
-                    if log_func:
-                        log_func(f"Требуется авторизация для доступа к URL: {url}")
-                    continue
-                elif not response.ok:
-                    if log_func:
-                        log_func(f"Ошибка доступа к {url}: {response.status_code}")
-                    continue
-
-                content = response.text
-
-                # Разбиение документа на части
-                text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-                chunks = text_splitter.split_text(content)
-
-                # Добавление частей в векторное хранилище
-                for chunk in chunks:
-                    document = Document(page_content=chunk, metadata={"source": url, "tag": tag})  # Создаём объект Document
-                    add_document_to_store(
-                        source=url,
-                        tag=tag,
-                        config=config,
-                        log_func=log_func,
-                        document=document  # Передаём объект Document
-                    )
-
-                if log_func:
-                    log_func(f"URL '{url}' успешно добавлен с тегом '{tag}'.")
-
-            except Exception as e:
-                if log_func:
-                    log_func(f"Ошибка при обработке URL '{url}': {e}")
-
+        all_docs = vectorstore._collection.get()
+        if not all_docs['ids']:
+            if log_func:
+                log_func("База данных пуста. Добавление тестовой записи.")
+            test_document = Document(
+                page_content="Это тестовая запись для инициализации базы данных.",
+                metadata={"source": "test_source", "tag": "test"}
+            )
+            vectorstore.add_documents([test_document])
+            if log_func:
+                log_func("Тестовая запись успешно добавлена.")
     except Exception as e:
         if log_func:
-            log_func(f"Ошибка при добавлении URL из файла: {e}")
-        raise e
+            log_func(f"Ошибка при инициализации базы данных: {e}")
+        raise
+
+    return vectorstore
+
+def add_urls_from_file(file_path, config, log_func=None):
+    """
+    Добавляет записи из файла с URL и тегами в векторное хранилище.
+
+    Args:
+        file_path (str): Путь к файлу, содержащему список URL и тегов.
+        config (Config): Конфигурационный объект.
+        log_func (callable, optional): Функция для логирования.
+
+    Raises:
+        FileNotFoundError: Если файл не найден.
+        ValueError: Если формат строки некорректный.
+    """
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"Файл {file_path} не найден.")
+
+    vectorstore = initialize_vector_store(config.vector_db.persist_directory, log_func=log_func)
+
+    with open(file_path, 'r') as file:
+        for line in file:
+            line = line.strip()
+            if not line:
+                continue  # Пропуск пустых строк
+
+            try:
+                url, tag = line.split(",")  # Ожидаемый формат: URL,тег
+                url = url.strip()
+                tag = tag.strip()
+
+                if log_func:
+                    log_func(f"Проверка и удаление существующих записей для URL или файла: {url}")
+
+                # Определяем, является ли источник URL или файлом
+                if url.startswith("http://") or url.startswith("https://"):
+                    source = url  # Для URL сохраняем полную ссылку
+                else:
+                    source = os.path.basename(url)  # Для файлов сохраняем только имя
+
+                    # Проверка допустимого формата файла
+                    if not (url.endswith(".txt") or url.endswith(".pdf")):
+                        raise ValueError(f"Неподдерживаемый формат файла: {url}. Допустимы только .txt и .pdf")
+
+                    # Проверяем наличие файла
+                    absolute_path = os.path.abspath(url)
+                    if not os.path.isfile(absolute_path):
+                        raise FileNotFoundError(f"Файл {absolute_path} не найден.")
+                    if os.path.getsize(absolute_path) == 0:
+                        raise ValueError(f"Файл {absolute_path} пуст.")
+
+                # Удаляем старые записи, если они существуют
+                remove_existing_documents(vectorstore, source)
+
+                if log_func:
+                    log_func(f"Добавление источника: {source} с тегом: {tag}")
+
+                # Добавляем новый документ
+                add_document_to_store(source=url, tag=tag, config=config, log_func=log_func)
+
+            except ValueError as ve:
+                if log_func:
+                    log_func(f"Ошибка обработки строки: {line}. {ve}")
+                raise ve
+            except FileNotFoundError as fnfe:
+                if log_func:
+                    log_func(f"Ошибка: {fnfe}")
+                raise fnfe
+            except Exception as e:
+                if log_func:
+                    log_func(f"Непредвиденная ошибка: {e}")
+                raise e
+
+    if log_func:
+        log_func("Все записи успешно добавлены.")

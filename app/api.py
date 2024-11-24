@@ -41,8 +41,6 @@ class ParseLinksRequest(BaseModel):
 
 class AddUrlsFromFileRequest(BaseModel):
     url_list_path: str = "urlslist.txt"
-    username: str = None
-    password: str = None
 
 @app.get("/")
 async def root():
@@ -129,10 +127,8 @@ async def add_urls_from_file_api(request: AddUrlsFromFileRequest):
     """
     try:
         add_urls_from_file(
+            file_path=request.url_list_path,
             config=config,
-            url_list_path=request.url_list_path,
-            username=request.username,
-            password=request.password,
             log_func=logger.info
         )
         return {"message": f"URL из файла '{request.url_list_path}' успешно добавлены в векторное хранилище."}

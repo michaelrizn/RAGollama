@@ -8,7 +8,9 @@ vector_db:
   inference_mode: "local"
 
 ollama:
-  default_model: "llama3.2:1b-instruct-fp16"
+  #default_model: "llama3.2:1b-instruct-fp16"
+  #default_model: "qwen2.5:0.5b"
+  default_model: "qwen2.5:1.5b"
 
 logging:
   level: "INFO"

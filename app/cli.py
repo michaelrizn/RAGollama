@@ -141,11 +141,9 @@ def add_urls_from_file(url_list_path, username, password):
     logger = setup_logger(config)
 
     try:
-        add_urls_from_file_util(  # Использование переименованной утилиты
+        add_urls_from_file_util(
+            file_path=url_list_path,  # Исправление аргумента
             config=config,
-            url_list_path=url_list_path,
-            username=username,
-            password=password,
             log_func=logger.info
         )
         click.echo(f"URL из файла '{url_list_path}' успешно добавлены в векторное хранилище.")
